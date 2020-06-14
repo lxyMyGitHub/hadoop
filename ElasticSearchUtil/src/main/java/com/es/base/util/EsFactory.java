@@ -21,7 +21,7 @@ public class EsFactory {
         FileInputStream stream = null;
         Properties properties = new Properties();
         try {
-            stream = new FileInputStream("D:\\testDir\\elasticSearchConfig.properties");
+            stream = new FileInputStream("E:\\CFCA\\xfraud\\00-Config\\esinit.properties");
             properties.load(stream);
             clusterName = properties.getProperty("clusterName");
             esServers = properties.getProperty("esServers");
