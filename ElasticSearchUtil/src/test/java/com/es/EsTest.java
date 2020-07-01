@@ -63,7 +63,8 @@ public class EsTest {
 //        query.getTradeSunAmountForTime("tradeindex", "tradeType", "tradeTime", startTime, endTime, size);
 //        query.getMaxAmountLast72h("tradeindex", "tradeType", "tradeTime");
 //        query.getdebit24h("tradeindex", "tradeType", "tradeTime");
-        query.getCurrCountryHistoryType72Hours_("tradeindex","tradeType",0);
+//        query.getCurrCountryHistoryType72Hours_("tradeindex","tradeType",0);
+        query.getHabitTradeDevice("tradeindex");
 
     }
     public void putOneMsg(EsQuery query) {

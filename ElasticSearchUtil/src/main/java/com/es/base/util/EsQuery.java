@@ -38,6 +38,7 @@ import org.elasticsearch.search.aggregations.metrics.sum.Sum;
 import org.elasticsearch.search.aggregations.metrics.sum.SumAggregationBuilder;
 import org.elasticsearch.search.aggregations.metrics.valuecount.ValueCount;
 import org.elasticsearch.search.aggregations.metrics.valuecount.ValueCountAggregationBuilder;
+import org.joda.time.DateTime;
 
 
 public class EsQuery {
@@ -694,6 +695,81 @@ public class EsQuery {
                     countrys += country +"&&";
                 }
                 System.out.println("accountNumber is  ："+"_"+accountNumber +"  countrys is:"+countrys);
+            }
+        }
+    }
+
+    /**
+     * 常用设备【习惯设备】（统计全部客户近（12-2天，该设备的交易笔数大于等于5笔且占所有交易的比例大于等于80%
+     * @param tradeIndex
+     */
+    public void getHabitTradeDevice(String tradeIndex) {
+        // 误差范围
+        double factor = 0.9;
+        long acctSize = 0;
+        long min_docs = 1;
+        int span_days_start = 12;
+        int span_days_end = 2;
+        int terms_size = 3000;
+        int size = 0;
+        DecimalFormat format = new DecimalFormat("#0.00");
+        DateTime nowTime = DateUtilJoda.getDateTimeInstance();
+        DateTime startTime = DateUtilJoda.addDays(nowTime,-span_days_start);
+        DateTime endTime = DateUtilJoda.addDays(nowTime,-span_days_end);
+        //时间查询区间
+        BoolQueryBuilder boolQueryBuilder = new BoolQueryBuilder();
+        boolQueryBuilder.must(QueryBuilders.rangeQuery("xfraudTradeTime4RA").gte(startTime.getMillis()).lte(endTime.getMillis()));
+        boolQueryBuilder.must(QueryBuilders.existsQuery("userId")).mustNot(QueryBuilders.termQuery("userId","")).mustNot(QueryBuilders.termQuery("userId","undefined"));
+        boolQueryBuilder.must(QueryBuilders.existsQuery("tradeDevice")).mustNot(QueryBuilders.termQuery("tradeDevice","")).mustNot(QueryBuilders.termQuery("tradeDevice","undefined"));
+        // Cardinality agg
+        CardinalityAggregationBuilder cardAgg = AggregationBuilders
+                .cardinality("card_userId")
+                .field("userId")
+                .precisionThreshold(40000);
+        SearchResponse card_response = client
+                .prepareSearch(tradeIndex)
+                .setQuery(boolQueryBuilder)
+                .setSize(0)
+                .addAggregation(cardAgg)
+                .get();
+        long dataSize = card_response.getHits().getTotalHits();
+        Cardinality card_result = card_response.getAggregations().get("card_userId");
+        long acct_count = card_result.getValue();
+        // 估算分区数
+        int numPartitions = 1 + (int) (acct_count /(terms_size*factor));
+        System.out.println("****** userId cardinality is "+acct_count+" terms size is "+terms_size+" numPartitions is "+numPartitions);
+        // scroll aggregation
+        for (int i = 0; i < numPartitions; i++) {
+            long startFor = System.currentTimeMillis();
+            // partition params
+            IncludeExclude includeExclude = new IncludeExclude(i, numPartitions);
+            TermsAggregationBuilder termsAggregationBuilder = AggregationBuilders.terms("agg_terms_userId").field("userId").size(terms_size).includeExclude(includeExclude);
+            TermsAggregationBuilder agg_terms_tradeDevice = AggregationBuilders.terms("agg_terms_tradeDevice").field("tradeDevice").size(terms_size).order(Terms.Order.term(true));
+            SearchResponse searchResponse = client.prepareSearch(tradeIndex)
+                    .setQuery(boolQueryBuilder)
+                    .setSize(size)
+                    .addAggregation(termsAggregationBuilder.subAggregation(agg_terms_tradeDevice))
+                    .get();
+            Terms terms = searchResponse.getAggregations().get("agg_terms_userId");
+            String value = "";
+            for (Terms.Bucket bucket : terms.getBuckets()) {
+                String userId = bucket.getKeyAsString();
+                Terms devicesTerms = bucket.getAggregations().get("agg_terms_tradeDevice");
+                long userTradeDeviceCount = bucket.getDocCount();
+                value = "userId："+userId + "   tradeDevice:&&";
+
+                for (Terms.Bucket tradeDeviceBucket : devicesTerms.getBuckets()) {
+                    long count = tradeDeviceBucket.getDocCount();
+                    String tradeDevice = tradeDeviceBucket.getKeyAsString();
+                    acctSize++;
+                    if(count >= 1 && count/userTradeDeviceCount*1.00 >= 0.001){
+                        value += tradeDevice+"&&";
+//                        System.out.println("count is "+ count);
+                        System.out.println("count is "+ count + " tradeDevice is "+tradeDevice + " userId is "+userId + " userIdCountTradeDevice is "+userTradeDeviceCount);
+                    }
+//                    System.out.println("accountNumber is  ："+"_"+accountNumber +"timeKey :"+timeKey+" max value  :"+maxValue);
+                }
+//                System.out.println("userId is  ："+"_"+userId+"value is :"+value);
             }
         }
     }
