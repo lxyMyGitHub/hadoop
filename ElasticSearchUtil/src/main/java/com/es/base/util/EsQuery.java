@@ -764,7 +764,7 @@ public class EsQuery {
                     acctSize++;
                     if(count >= 1 && count/userTradeDeviceCount*1.00 >= 0.001){
                         value += tradeDevice+"&&";
-//                        System.out.println("count is "+ count);
+                        //                        System.out.println("count is "+ count);
                         System.out.println("count is "+ count + " tradeDevice is "+tradeDevice + " userId is "+userId + " userIdCountTradeDevice is "+userTradeDeviceCount);
                     }
 //                    System.out.println("accountNumber is  ："+"_"+accountNumber +"timeKey :"+timeKey+" max value  :"+maxValue);
@@ -773,4 +773,205 @@ public class EsQuery {
             }
         }
     }
+
+
+    /**
+     * longFeature01-账号过去X天内，商户的交易笔数
+     * @param tradeIndex
+     */
+    public void longFeature01(String tradeIndex) {
+        // 误差范围
+        double factor = 0.9;
+        long acctSize = 0;
+        long min_docs = 1;
+        int span_days = 5;
+        int terms_size = 3000;
+        int size = 0;
+        DecimalFormat format = new DecimalFormat("#0.00");
+        DateTime endTime = DateUtilJoda.getDateTimeInstance();
+        DateTime startTime = DateUtilJoda.addDays(endTime,-span_days);
+        //时间查询区间
+        BoolQueryBuilder boolQueryBuilder = new BoolQueryBuilder();
+        boolQueryBuilder.must(QueryBuilders.rangeQuery("xfraudTradeTime4RA").gte(startTime.getMillis()).lte(endTime.getMillis()));
+        boolQueryBuilder.must(QueryBuilders.existsQuery("accountNumber")).mustNot(QueryBuilders.termQuery("accountNumber","")).mustNot(QueryBuilders.termQuery("accountNumber","undefined"));
+        boolQueryBuilder.must(QueryBuilders.existsQuery("merchantNumber")).mustNot(QueryBuilders.termQuery("merchantNumber","")).mustNot(QueryBuilders.termQuery("merchantNumber","undefined"));
+        // Cardinality agg
+        CardinalityAggregationBuilder cardAgg = AggregationBuilders
+                .cardinality("card_accountNumber")
+                .field("accountNumber")
+                .precisionThreshold(40000);
+        SearchResponse card_response = client
+                .prepareSearch(tradeIndex)
+                .setQuery(boolQueryBuilder)
+                .setSize(0)
+                .addAggregation(cardAgg)
+                .get();
+        long dataSize = card_response.getHits().getTotalHits();
+        Cardinality card_result = card_response.getAggregations().get("card_accountNumber");
+        long acct_count = card_result.getValue();
+        // 估算分区数
+        int numPartitions = 1 + (int) (acct_count /(terms_size*factor));
+        System.out.println("****** accountNumber cardinality is "+acct_count+" terms size is "+terms_size+" numPartitions is "+numPartitions);
+        // scroll aggregation
+        for (int i = 0; i < numPartitions; i++) {
+            long startFor = System.currentTimeMillis();
+            // partition params
+            IncludeExclude includeExclude = new IncludeExclude(i, numPartitions);
+            TermsAggregationBuilder termsAggregationBuilder = AggregationBuilders.terms("agg_terms_accountNumber").field("accountNumber").size(terms_size).includeExclude(includeExclude);
+            TermsAggregationBuilder agg_terms_merchantNumber = AggregationBuilders.terms("agg_terms_merchantNumber").field("merchantNumber").size(terms_size).order(Terms.Order.term(true));
+            SearchResponse searchResponse = client.prepareSearch(tradeIndex)
+                    .setQuery(boolQueryBuilder)
+                    .setSize(size)
+                    .addAggregation(termsAggregationBuilder.subAggregation(agg_terms_merchantNumber))
+                    .get();
+            Terms terms = searchResponse.getAggregations().get("agg_terms_accountNumber");
+            String value = "";
+            for (Terms.Bucket bucket : terms.getBuckets()) {
+                String userId = bucket.getKeyAsString();
+                Terms devicesTerms = bucket.getAggregations().get("agg_terms_merchantNumber");
+                long userMerchCount = bucket.getDocCount();
+                value = "userId："+userId + "   merchantNumber:&&";
+
+                for (Terms.Bucket merchBucket : devicesTerms.getBuckets()) {
+                    long count = merchBucket.getDocCount();
+                    String merchantNumber = merchBucket.getKeyAsString();
+                    acctSize++;
+                    if(count >= 1){
+                        value += merchantNumber+"&&"+count;
+                        //                        System.out.println("count is "+ count);
+//                        System.out.println("count is "+ count + " tradeDevice is "+merchantNumber + " userId is "+userId + " userIdCountTradeDevice is "+userMerchCount);
+                    }
+//                    System.out.println("accountNumber is  ："+"_"+accountNumber +"timeKey :"+timeKey+" max value  :"+maxValue);
+                }
+                if(userMerchCount>1){
+                    System.out.println("userId is  ："+"_"+userId+"value is :"+value +"userMerchCount :"+ userMerchCount);
+                }
+            }
+        }
+    }
+
+    /**
+     * longFeature02-同一账号X天内的单笔交易金额在50000元上下浮动5%，且类似交易的笔数
+     * @param tradeIndex
+     */
+    public void longFeature02(String tradeIndex) {
+        // 误差范围
+        double factor = 0.9;
+        long acctSize = 0;
+        long min_docs = 1;
+        int span_days = 5;
+        int terms_size = 3000;
+        int size = 0;
+        double amountRange = 50000*0.05;
+        DecimalFormat format = new DecimalFormat("#0.00");
+        DateTime endTime = DateUtilJoda.getDateTimeInstance();
+        DateTime startTime = DateUtilJoda.addDays(endTime,-span_days);
+        //时间查询区间
+        BoolQueryBuilder boolQueryBuilder = new BoolQueryBuilder();
+        boolQueryBuilder.must(QueryBuilders.rangeQuery("xfraudTradeTime4RA").gte(startTime.getMillis()).lte(endTime.getMillis()));
+        boolQueryBuilder.must(QueryBuilders.rangeQuery("amount").gte(500-amountRange).lte(50000+amountRange));
+        boolQueryBuilder.must(QueryBuilders.existsQuery("accountNumber")).mustNot(QueryBuilders.termQuery("accountNumber","")).mustNot(QueryBuilders.termQuery("accountNumber","undefined"));
+        // Cardinality agg
+        CardinalityAggregationBuilder cardAgg = AggregationBuilders
+                .cardinality("card_accountNumber")
+                .field("accountNumber")
+                .precisionThreshold(40000);
+        SearchResponse card_response = client
+                .prepareSearch(tradeIndex)
+                .setQuery(boolQueryBuilder)
+                .setSize(0)
+                .addAggregation(cardAgg)
+                .get();
+        long dataSize = card_response.getHits().getTotalHits();
+        Cardinality card_result = card_response.getAggregations().get("card_accountNumber");
+        long acct_count = card_result.getValue();
+        // 估算分区数
+        int numPartitions = 1 + (int) (acct_count /(terms_size*factor));
+        System.out.println("****** accountNumber cardinality is "+acct_count+" terms size is "+terms_size+" numPartitions is "+numPartitions);
+        // scroll aggregation
+        for (int i = 0; i < numPartitions; i++) {
+            long startFor = System.currentTimeMillis();
+            // partition params
+            IncludeExclude includeExclude = new IncludeExclude(i, numPartitions);
+            TermsAggregationBuilder termsAggregationBuilder = AggregationBuilders.terms("agg_terms_accountNumber").field("accountNumber").size(terms_size).includeExclude(includeExclude);
+            SearchResponse searchResponse = client.prepareSearch(tradeIndex)
+                    .setQuery(boolQueryBuilder)
+                    .setSize(size)
+                    .addAggregation(termsAggregationBuilder)
+                    .get();
+            Terms terms = searchResponse.getAggregations().get("agg_terms_accountNumber");
+            String value = "";
+            for (Terms.Bucket bucket : terms.getBuckets()) {
+                String accountNumber = bucket.getKeyAsString();
+                long accountNumberCount = bucket.getDocCount();
+                value = "accountNumber："+accountNumber + "   accountNumberCount:"+accountNumberCount;
+                if(accountNumberCount>1){
+                    System.out.println(value);
+                }
+            }
+        }
+    }
+
+    /**
+     * longFeature01-账号过去X天内交易笔数
+     * @param tradeIndex
+     */
+    public void longFeature0102(String tradeIndex) {
+        // 误差范围
+        double factor = 0.9;
+        long acctSize = 0;
+        long min_docs = 1;
+        int span_days = 5;
+        int terms_size = 3000;
+        int size = 0;
+        DecimalFormat format = new DecimalFormat("#0.00");
+        DateTime endTime = DateUtilJoda.getDateTimeInstance();
+        DateTime startTime = DateUtilJoda.addDays(endTime,-span_days);
+        //时间查询区间
+        BoolQueryBuilder boolQueryBuilder = new BoolQueryBuilder();
+        boolQueryBuilder.must(QueryBuilders.rangeQuery("xfraudTradeTime4RA").gte(startTime.getMillis()).lte(endTime.getMillis()));
+        boolQueryBuilder.must(QueryBuilders.existsQuery("accountNumber")).mustNot(QueryBuilders.termQuery("accountNumber","")).mustNot(QueryBuilders.termQuery("accountNumber","undefined"));
+        // Cardinality agg
+        CardinalityAggregationBuilder cardAgg = AggregationBuilders
+                .cardinality("card_accountNumber")
+                .field("accountNumber")
+                .precisionThreshold(40000);
+        SearchResponse card_response = client
+                .prepareSearch(tradeIndex)
+                .setQuery(boolQueryBuilder)
+                .setSize(0)
+                .addAggregation(cardAgg)
+                .get();
+        long dataSize = card_response.getHits().getTotalHits();
+        Cardinality card_result = card_response.getAggregations().get("card_accountNumber");
+        long acct_count = card_result.getValue();
+        // 估算分区数
+        int numPartitions = 1 + (int) (acct_count /(terms_size*factor));
+        System.out.println("****** accountNumber cardinality is "+acct_count+" terms size is "+terms_size+" numPartitions is "+numPartitions);
+        // scroll aggregation
+        for (int i = 0; i < numPartitions; i++) {
+            long startFor = System.currentTimeMillis();
+            // partition params
+            IncludeExclude includeExclude = new IncludeExclude(i, numPartitions);
+            TermsAggregationBuilder termsAggregationBuilder = AggregationBuilders.terms("agg_terms_accountNumber").field("accountNumber").size(terms_size).includeExclude(includeExclude);
+            SearchResponse searchResponse = client.prepareSearch(tradeIndex)
+                    .setQuery(boolQueryBuilder)
+                    .setSize(size)
+                    .addAggregation(termsAggregationBuilder)
+                    .get();
+            Terms terms = searchResponse.getAggregations().get("agg_terms_accountNumber");
+            String value = "";
+            for (Terms.Bucket bucket : terms.getBuckets()) {
+                String accountNumber = bucket.getKeyAsString();
+                long accountNumberCount = bucket.getDocCount();
+                value = "accountNumber："+accountNumber + "   accountNumberCount:"+accountNumberCount;
+                if(accountNumberCount>1){
+                    System.out.println("value is :"+value );
+                }
+            }
+        }
+    }
+
+
+
 }

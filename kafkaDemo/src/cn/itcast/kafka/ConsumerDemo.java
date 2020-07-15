@@ -30,7 +30,6 @@ public class ConsumerDemo {
         List<KafkaStream<byte[], byte[]>> streams = consumerMap.get(topic);
         for (final KafkaStream<byte[], byte[]> kafkaStream : streams) {
             new Thread(new Runnable() {
-
                 @Override
                 public void run() {
                     for (MessageAndMetadata<byte[], byte[]> mm : kafkaStream) {

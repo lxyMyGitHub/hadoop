@@ -1,4 +1,4 @@
-package cn.itcast.kafka;
+ package cn.itcast.kafka;
 
 import java.util.Properties;
 

@@ -19,18 +19,11 @@ public class EsTest {
 
     @Test
     public void testEsQuery() {
-
-
         EsQuery query = new EsQuery();
-//        System.out.println(query);
-//         getModexTest(query);
-        // testDel(query);
-        // putOneMsg(query);
-        // testUpdate(query);
         System.out.println("testGet run begain");
         testGet(query);
-//        adminApi(query);
     }
+
     @Test
     public void testJedis(){
         HashSet<HostAndPort> hostAndPorts = new HashSet<HostAndPort>();
@@ -64,7 +57,7 @@ public class EsTest {
 //        query.getMaxAmountLast72h("tradeindex", "tradeType", "tradeTime");
 //        query.getdebit24h("tradeindex", "tradeType", "tradeTime");
 //        query.getCurrCountryHistoryType72Hours_("tradeindex","tradeType",0);
-        query.getHabitTradeDevice("tradeindex");
+        query.longFeature0102("tradeindex");
 
     }
     public void putOneMsg(EsQuery query) {
