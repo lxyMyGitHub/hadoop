@@ -401,7 +401,7 @@ public class EsQuery {
             // partition params
             IncludeExclude includeExclude = new IncludeExclude(i, numPartitions);
             TermsAggregationBuilder termsAggregationBuilder = AggregationBuilders.terms("agg_terms").field("accountNumber").size(terms_size).includeExclude(includeExclude);
-            MaxAggregationBuilder maxAgg = AggregationBuilders.max("max_xfraudTradeTime").field("xfraudTradeTime");
+            MaxAggregationBuilder maxAgg = AggregationBuilders.max("max_timeLong").field("timeLong");
             SearchResponse searchResponse = client.prepareSearch(tradeIndex)
                     .setQuery(boolQueryBuilder)
                     .setSize(size)
@@ -411,7 +411,7 @@ public class EsQuery {
             for (Terms.Bucket bucket : terms.getBuckets()) {
                 String accountNumber = bucket.getKeyAsString();
                 long docCount = bucket.getDocCount();
-                Max stats = bucket.getAggregations().get("max_xfraudTradeTime");
+                Max stats = bucket.getAggregations().get("max_timeLong");
                 String timeValue = format.format(stats.getValue());
                 acctSize++;
                 System.out.println("accountNumber is  ："+accountNumber +" last time is  :"+timeValue);
@@ -718,7 +718,7 @@ public class EsQuery {
         DateTime endTime = DateUtilJoda.addDays(nowTime,-span_days_end);
         //时间查询区间
         BoolQueryBuilder boolQueryBuilder = new BoolQueryBuilder();
-        boolQueryBuilder.must(QueryBuilders.rangeQuery("xfraudTradeTime4RA").gte(startTime.getMillis()).lte(endTime.getMillis()));
+        boolQueryBuilder.must(QueryBuilders.rangeQuery("timeLong4RA").gte(startTime.getMillis()).lte(endTime.getMillis()));
         boolQueryBuilder.must(QueryBuilders.existsQuery("userId")).mustNot(QueryBuilders.termQuery("userId","")).mustNot(QueryBuilders.termQuery("userId","undefined"));
         boolQueryBuilder.must(QueryBuilders.existsQuery("tradeDevice")).mustNot(QueryBuilders.termQuery("tradeDevice","")).mustNot(QueryBuilders.termQuery("tradeDevice","undefined"));
         // Cardinality agg
@@ -792,7 +792,7 @@ public class EsQuery {
         DateTime startTime = DateUtilJoda.addDays(endTime,-span_days);
         //时间查询区间
         BoolQueryBuilder boolQueryBuilder = new BoolQueryBuilder();
-        boolQueryBuilder.must(QueryBuilders.rangeQuery("xfraudTradeTime4RA").gte(startTime.getMillis()).lte(endTime.getMillis()));
+        boolQueryBuilder.must(QueryBuilders.rangeQuery("timeLong4RA").gte(startTime.getMillis()).lte(endTime.getMillis()));
         boolQueryBuilder.must(QueryBuilders.existsQuery("accountNumber")).mustNot(QueryBuilders.termQuery("accountNumber","")).mustNot(QueryBuilders.termQuery("accountNumber","undefined"));
         boolQueryBuilder.must(QueryBuilders.existsQuery("merchantNumber")).mustNot(QueryBuilders.termQuery("merchantNumber","")).mustNot(QueryBuilders.termQuery("merchantNumber","undefined"));
         // Cardinality agg
@@ -868,7 +868,7 @@ public class EsQuery {
         DateTime startTime = DateUtilJoda.addDays(endTime,-span_days);
         //时间查询区间
         BoolQueryBuilder boolQueryBuilder = new BoolQueryBuilder();
-        boolQueryBuilder.must(QueryBuilders.rangeQuery("xfraudTradeTime4RA").gte(startTime.getMillis()).lte(endTime.getMillis()));
+        boolQueryBuilder.must(QueryBuilders.rangeQuery("timeLong4RA").gte(startTime.getMillis()).lte(endTime.getMillis()));
         boolQueryBuilder.must(QueryBuilders.rangeQuery("amount").gte(500-amountRange).lte(50000+amountRange));
         boolQueryBuilder.must(QueryBuilders.existsQuery("accountNumber")).mustNot(QueryBuilders.termQuery("accountNumber","")).mustNot(QueryBuilders.termQuery("accountNumber","undefined"));
         // Cardinality agg
@@ -929,7 +929,7 @@ public class EsQuery {
         DateTime startTime = DateUtilJoda.addDays(endTime,-span_days);
         //时间查询区间
         BoolQueryBuilder boolQueryBuilder = new BoolQueryBuilder();
-        boolQueryBuilder.must(QueryBuilders.rangeQuery("xfraudTradeTime4RA").gte(startTime.getMillis()).lte(endTime.getMillis()));
+        boolQueryBuilder.must(QueryBuilders.rangeQuery("timeLong4RA").gte(startTime.getMillis()).lte(endTime.getMillis()));
         boolQueryBuilder.must(QueryBuilders.existsQuery("accountNumber")).mustNot(QueryBuilders.termQuery("accountNumber","")).mustNot(QueryBuilders.termQuery("accountNumber","undefined"));
         // Cardinality agg
         CardinalityAggregationBuilder cardAgg = AggregationBuilders
@@ -971,6 +971,76 @@ public class EsQuery {
             }
         }
     }
+
+
+    /**
+     * longFeatureL4301-绑定账户开户行集中在少数几家银行
+     * @param tradeIndex
+     */
+    public void longFeatureL4301(String tradeIndex) {
+        // 误差范围
+        double factor = 0.9;
+        long acctSize = 0;
+        long min_docs = 1;
+        int span_days = 15;
+        int terms_size = 3000;
+        int size = 0;
+        DecimalFormat format = new DecimalFormat("#0.00");
+        DateTime endTime = DateUtilJoda.getDateTimeInstance();
+        DateTime startTime = DateUtilJoda.addDays(endTime,-span_days);
+        //时间查询区间
+        BoolQueryBuilder boolQueryBuilder = new BoolQueryBuilder();
+        boolQueryBuilder.must(QueryBuilders.rangeQuery("timeLong4RA").gte(startTime.getMillis()).lte(endTime.getMillis()));
+        boolQueryBuilder.must(QueryBuilders.existsQuery("branchBank")).mustNot(QueryBuilders.termQuery("branchBank","")).mustNot(QueryBuilders.termQuery("branchBank","undefined"));
+//        boolQueryBuilder.must(QueryBuilders.existsQuery("tradeType")).must(QueryBuilders.matchQuery("tradeType","binding"));
+        // Cardinality agg
+        CardinalityAggregationBuilder cardAgg = AggregationBuilders
+                .cardinality("card_branchBank")
+                .field("branchBank")
+                .precisionThreshold(40000);
+        SearchResponse card_response = client
+                .prepareSearch(tradeIndex)
+                .setQuery(boolQueryBuilder)
+                .setSize(0)
+                .addAggregation(cardAgg)
+                .get();
+        long dataSize = card_response.getHits().getTotalHits();
+        Cardinality card_result = card_response.getAggregations().get("card_branchBank");
+        long acct_count = card_result.getValue();
+        // 估算分区数
+        int numPartitions = 1 + (int) (acct_count /(terms_size*factor));
+        System.out.println("****** branchBank cardinality is "+acct_count+" terms size is "+terms_size+" numPartitions is "+numPartitions);
+        // scroll aggregation
+        for (int i = 0; i < numPartitions; i++) {
+            long startFor = System.currentTimeMillis();
+            // partition params
+            IncludeExclude includeExclude = new IncludeExclude(i, numPartitions);
+            TermsAggregationBuilder termsAggregationBuilder = AggregationBuilders.terms("agg_terms_branchBank").field("branchBank").size(terms_size).includeExclude(includeExclude);
+            SearchResponse searchResponse = client.prepareSearch(tradeIndex)
+                    .setQuery(boolQueryBuilder)
+                    .setSize(size)
+                    .addAggregation(termsAggregationBuilder)
+                    .get();
+            Terms terms = searchResponse.getAggregations().get("agg_terms_branchBank");
+
+
+            for (Terms.Bucket bucket : terms.getBuckets()) {
+                String value = "";
+                String branchBank = bucket.getKeyAsString();
+                long branchBankCount = bucket.getDocCount();
+                value = "branchBank："+branchBank + "   branchBankCount:"+branchBankCount +"/"+branchBankCount;
+                double ratio = branchBankCount / Double.parseDouble(dataSize+"");
+                if(branchBankCount>= 100){
+                    System.out.println(value+"ratio is :"+ratio);
+
+                }
+            }
+
+        }
+        System.out.println("acct_count:"+acct_count);
+        System.out.println("dataSize:"+dataSize);
+    }
+
 
 
 

@@ -30,18 +30,18 @@ public class EsTest {
         hostAndPorts.add(new HostAndPort("192.168.44.154",6379));
         hostAndPorts.add(new HostAndPort("192.168.44.154",6380));
         JedisCluster jc = new JedisCluster(hostAndPorts);
-        long xfraudTradeTime4RA = System.currentTimeMillis();
+        long timeLong = System.currentTimeMillis();
         String key = "keyTest0605";
-        jc.zadd(key,xfraudTradeTime4RA-5*3600000,xfraudTradeTime4RA+5*3600000+"");
-        System.out.println(xfraudTradeTime4RA-5*3600000);
+        jc.zadd(key,timeLong-5*3600000,timeLong+5*3600000+"");
+        System.out.println(timeLong-5*3600000);
         jc.expire(key,3*60*60);
-        Set<String> times = jc.zrangeByScore(key, xfraudTradeTime4RA - 3 * 3600000, xfraudTradeTime4RA);
+        Set<String> times = jc.zrangeByScore(key, timeLong - 3 * 3600000, timeLong);
         if(times!=null && times.size()>0){
             for (String time:times) {
                 System.out.println(time);
             }
         }
-        jc.zremrangeByScore(key,0,xfraudTradeTime4RA-3*3600000);
+        jc.zremrangeByScore(key,0,timeLong-3*3600000);
 
 
     }
@@ -57,7 +57,7 @@ public class EsTest {
 //        query.getMaxAmountLast72h("tradeindex", "tradeType", "tradeTime");
 //        query.getdebit24h("tradeindex", "tradeType", "tradeTime");
 //        query.getCurrCountryHistoryType72Hours_("tradeindex","tradeType",0);
-        query.longFeature0102("tradeindex");
+        query.longFeatureL4301("tradeindex");
 
     }
     public void putOneMsg(EsQuery query) {
